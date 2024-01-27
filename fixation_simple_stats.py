@@ -20,12 +20,13 @@ if not os.path.exists(pupil_to_pkl):
 fig_path = './figure'
 
 # set tasks and associated colors 
-task_names = ['lego', 'walking', 'visual search', 'reading']
+task_names = ['lego', 'walking', 'visual search', 'reading', 'watching']
 colors = {
     'lego': sns.light_palette("seagreen", 5),
     'walking': sns.light_palette("blue", 5), 
     'visual search': sns.light_palette("red", 5),
-    'reading': sns.light_palette("orange", 5)
+    'reading': sns.light_palette("orange", 5),
+    'watching': sns.light_palette("purple", 5)
     }
 
 # pre-set custom legend handles 
@@ -34,6 +35,7 @@ legend_handles = [
     plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=colors['reading'][3], markersize=10, label='reading'),
     plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=colors['visual search'][3], markersize=10, label='visual search'),
     plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=colors['walking'][3], markersize=10, label='walking'),
+    plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=colors['watching'][3], markersize=10, label='watching'),
 ]
 
 # open figures
@@ -65,6 +67,10 @@ for idx in range(len(dataList)):
     elif "reading" in str(np.squeeze(pupil_data['note'])).lower():
         pupil_data['note'] = 'reading'
         thiscolor = colors['reading']
+    elif "watching" in str(np.squeeze(pupil_data['note'])).lower():
+        pupil_data['note'] = 'watching'
+        thiscolor = colors['watching']
+
 
     # select fixation values that only needs to be considered - while actively doing the task 
     if not pupil_data['events'].empty:
