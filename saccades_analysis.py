@@ -1,3 +1,4 @@
+#%% import libraries
 import numpy as np 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -53,73 +54,34 @@ acceleration = np.gradient(velocity_magnitude, fsp)
 threshold = 35/fsp      # threshold for acceleration value
 acceleration_thresholded = np.where(acceleration>=threshold)[0]
 
-# saccades = 
+# create figure for plotting the acceleration, velocity, and the raw data
+fig = plt.figure(figsize=(15,8))
+ax1 = plt.subplot2grid((3, 2), (0, 0), colspan=2)
+ax2 = plt.subplot2grid((3, 2), (1, 0), colspan=2)
+ax3 = plt.subplot2grid((3, 2), (2, 0))
+ax4 = plt.subplot2grid((3, 2), (2, 1))
 
-peaks = (acceleration[1:-1]>acceleration[:-2]) & (acceleration[1:-1]>acceleration[2:])
-peaks = np.where(np.append(False, np.append(peaks, False)))[0]
-peaks = np.intersect1d(peaks, acceleration_thresholded)
+ax1.plot(times, acceleration, alpha=0.5, label='acceleration')
+ax1.scatter(times[acceleration_thresholded], acceleration[acceleration_thresholded], 
+            color='red', label='supra-thresholded')
+ax1.set_ylabel(r'Acceleration[deg/sec$^{-2}$]')
+ax1.legend()
 
+ax2.plot(times, velocity_x, alpha=0.5, label='azimuth')
+ax2.plot(times, velocity_y, alpha=0.5, label='elevation')
+ax2.plot(times, velocity_magnitude, alpha=0.8, label='magnitude')
+ax2.scatter(times[acceleration_thresholded], velocity_magnitude[acceleration_thresholded], label='supra-thresholded')
+ax2.set_xlabel('Time [sec]')
+ax2.set_ylabel('Velocity [deg/s]')
+ax2.legend(loc='lower right')
 
-# set figure
-fig = make_subplots(rows=2, cols=2,
-                    subplot_titles=[None, None, 'Azimuth', 'Elevation'])
+ax3.plot(times, gaze['azimuth [deg]'])
+ax3.scatter(times[acceleration_thresholded], gaze['azimuth [deg]'].iloc[acceleration_thresholded], label='supra-thresholded')
+ax3.set_xlabel('Time [sec]')
+ax3.set_ylabel('Azimuth [deg]')
 
-# the first subplot shows velocity and saccades 
-fig.add_trace(go.Scatter(x=times, y=velocity_x, mode='lines', 
-                         opacity=0.5,
-                         name='Velocity Azimuth'),
-                        row=1, col=1)
-fig.add_trace(go.Scatter(x=times, y=velocity_y, mode='lines', 
-                         opacity=.5, 
-                         name='Velocity Elevation'),
-                        row=1, col=1)
-fig.add_trace(go.Scatter(x=times, y=velocity_magnitude, mode='lines',
-                         name='Velocity magnitude'),
-                        row=1, col=1)
-fig.add_trace(go.Scatter(x=times[saccades], y=velocity_magnitude[saccades], mode='markers', 
-                         name='Detected saccades'),
-                        row=1, col=1)
-fig.update_xaxes(domain=[0, 1], title_text='Time (sec)', row=1, col=1)
-fig.update_yaxes(title_text='Velocity (deg/sec)', row=1, col=1)
-fig.update_layout(title=go.layout.Title(text='Detected saccades', x=0.5, y=0.9))
-
-
-# add azimuth and elevation
-fig.add_trace(go.Scatter(x=times, y=gaze['azimuth [deg]'], mode='lines'),
-              row=2, col=1)
-fig.add_trace(go.Scatter(x=times, y=gaze['elevation [deg]'], mode='lines'), 
-              row=2, col=2)
-fig.update_xaxes(title_text='Time (sec)', row=3, col=1)
-fig.update_yaxes(title_text='Visual Angle (deg)', row=3, col=1)
-fig.update_xaxes(title_text='Time (sec)', row=3, col=2)
-
-# add velocity
-fig.add_trace(go.Scatter(x=times, y=np.gradient(gaze['azimuth [deg]']), mode='lines'), 
-              row=2, col=1)
-fig.add_trace(go.Scatter(x=times, y=np.gradient(gaze['elevation [deg]']), mode='lines'), 
-              row=2, col=1)
-fig.update_yaxes(title_text='Velocity (deg/sec)', row=2, col=1)
-
-
-t_gaze = go.Scatter(x=times, y=gaze['azimuth [deg]'], mode='lines')
-fig.add_trace(t_gaze, row=2, col=1)
-for x_min, x_max in zip(fixation_start, fixation_end):
-    fig.add_shape(type='rect', x0=times[x_min], y0=0, x1=times[x_max], y1=1, 
-                      fillcolor='rgba(125, 125, 125, 0.3)', 
-                      line=dict(width=0), 
-                      layer='below', row=2, col=1)
-fig.update_xaxes(title_text='Time (sec)', row=2, col=1)
-fig.update_yaxes(title_text='azimuth (deg)', row=2, col=1)
-
-# set figy and add the trace in the figocity = np.gradient(gaze['azimuth [deg]'])
-t_velocity = go.Scatter(x=times, y=velocity, mode='lines')
-fig.add_trace(t_velocity, row=1, col=1)
-for x_min, x_max in zip(fixation_start, fixation_end):
-    fig.add_shape(type='rect', x0=times[x_min], y0=0, x1=times[x_max], y1=.5, 
-                      fillcolor='rgba(125, 125, 125, 0.3)', 
-                      line=dict(width=0), 
-                      layer='below', row=1, col=1)
-fig.update_yaxes(title_text='velocity (deg/sec)', row=1, col=1)
-fig.update_layout(showlegend=False)
-fig.show()
+ax4.plot(times, gaze['elevation [deg]'])
+ax4.scatter(times[acceleration_thresholded], gaze['elevation [deg]'].iloc[acceleration_thresholded], label='supra-thresholded')
+ax4.set_xlabel('Time [sec]')
+ax4.set_ylabel('Elevation [deg]')
 
