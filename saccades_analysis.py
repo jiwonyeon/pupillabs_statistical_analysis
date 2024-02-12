@@ -9,7 +9,6 @@ import plotly.io as pio
 from plotly.subplots import make_subplots
 from scipy.signal import find_peaks
 
-
 #%% set directories
 dataPath = os.path.abspath(glob.glob('./data/2023*')[0])
 figPath= './figure'
@@ -24,7 +23,7 @@ if not os.path.exists(os.path.join(dataPath, 'eyedata.pkl')):
 pupil_data = pickle.load(open(os.path.join(dataPath, 'eyedata.pkl'), 'rb'))
 
 
-#%% figure generation
+#%% detect saccades and generate figures
 # select the data to plot
 chopping = np.arange(0,3001)
 times = (pupil_data['gaze']['timestamp [ns]'] - pupil_data['gaze']['timestamp [ns]'][0]) / 1e9
@@ -73,6 +72,7 @@ for i in peak_acc_idx:
 # find saccade durations based on the peak acceleration index
 saccade_start = []
 saccade_end = []
+neg_peak_acc_idx = []
 for peak_id, i in enumerate(peak_acc_idx):
     # find the start of saccade duration
     this_window = np.where((times >= times[i]-0.035) & (times <= times[i]))[0]  # between -35 ms to the peak
@@ -86,6 +86,7 @@ for peak_id, i in enumerate(peak_acc_idx):
     else:
         this_window = np.arange(i,len(times))
     deep = np.argmin(acceleration[this_window])+this_window[0]
+    neg_peak_acc_idx.append(deep)
     
     # find the first most flat point after 100ms of the deep
     this_window = np.where((times > times[deep]) & (times < times[deep]+0.1))[0]
@@ -138,3 +139,19 @@ for start, end in zip(times[saccade_start], times[saccade_end]):
 ax[3].set_xlabel('Time [sec]')
 ax[3].set_ylabel('Elevation [deg]')
 
+#%% compare saccade duration with amplitude and maximum acceleration
+saccade_duration = times[saccade_end].to_numpy()-times[saccade_start].to_numpy()
+saccade_max_acceleration = acceleration[peak_acc_idx]
+saccade_amplitude = acceleration[peak_acc_idx]-acceleration[neg_peak_acc_idx]
+
+order = np.argsort(saccade_duration)
+fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,5))
+n = 0
+ax[n].plot(saccade_duration[order], saccade_amplitude, '-o')
+ax[n].set_xlabel('Saccade duration [sec]')
+ax[n].set_ylabel('Saccade amplitude')
+
+n += 1
+ax[n].plot(saccade_duration[order], saccade_max_acceleration[order], '-o')
+ax[n].set_xlabel('Saccade duration [sec]')
+ax[n].set_ylabel(r'Max acceleration [deg/sec$^{-2}$]')
