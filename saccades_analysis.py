@@ -40,7 +40,7 @@ for id in gaze['fixation id'].dropna().unique():
     fixation_end.append(fixation.index[-1])    
 
 # compute velocity of x and y direction
-fsp = np.average(np.diff(times))
+fsp = round(np.average(np.diff(times)),3)
 velocity_x = np.gradient(gaze['azimuth [deg]'], fsp)
 velocity_y = np.gradient(gaze['elevation [deg]'], fsp)
 
@@ -53,6 +53,25 @@ acceleration = np.gradient(velocity_magnitude, fsp)
 # first, threshold the acceleration 
 threshold = 35/fsp      # threshold for acceleration value
 acceleration_thresholded = np.where(acceleration>=threshold)[0]
+
+# apply butterworth filter
+cutoff = 20     # cutoff frequency
+order = 2   # filter order
+
+nyq = 0.5*fsp  # Nyquist frequency
+normal_cutoff = cutoff/nyq
+
+# filter coefficients
+from scipy.signal import butter, filtfilt
+b, a = butter(order, normal_cutoff, btype='low', analog=False)
+
+filtered_acceleration = filtfilt(b,a,acceleration)
+
+
+plt.plot(acceleration)
+plt.plot(filtered_acceleration)
+
+
 
 # after thresholding, find the peak acceleration within the 100 ms window
 peak_acc_idx = []
