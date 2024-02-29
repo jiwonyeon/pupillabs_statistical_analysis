@@ -4,10 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os, glob
 import subprocess, pickle
-import plotly.graph_objects as go 
-import plotly.io as pio
-from plotly.subplots import make_subplots
 from scipy.signal import find_peaks
+from scipy.signal import butter, filtfilt
 
 #%% set directories
 dataPath = os.path.abspath(glob.glob('./data/2023*')[0])
@@ -25,7 +23,7 @@ pupil_data = pickle.load(open(os.path.join(dataPath, 'eyedata.pkl'), 'rb'))
 
 #%% detect saccades and generate figures
 # select the data to plot
-chopping = np.arange(0,3001)
+chopping = np.arange(0,3501)
 times = (pupil_data['gaze']['timestamp [ns]'] - pupil_data['gaze']['timestamp [ns]'][0]) / 1e9
 times = times[chopping]
 times.name = 'time [sec]'
@@ -50,45 +48,61 @@ velocity_magnitude = np.sqrt(velocity_x**2+velocity_y**2)
 # second derivative of the amplitude
 acceleration = np.gradient(velocity_magnitude, fsp)
 
-# first, threshold the acceleration 
-threshold = 35/fsp      # threshold for acceleration value
-acceleration_thresholded = np.where(acceleration>=threshold)[0]
+# threshold the velocity_magnitude
+threshold = 150      # threshold for velocity_magnitude
+velocity_thresholded = np.where(velocity_magnitude>=threshold)[0]
 
 # apply butterworth filter
-cutoff = 20     # cutoff frequency
+cutoff = 18     # cutoff frequency
 order = 2   # filter order
-
-nyq = 0.5*fsp  # Nyquist frequency
+nyq = 0.5*(1/fsp)  # Nyquist frequency, frequency in Hz
 normal_cutoff = cutoff/nyq
 
 # filter coefficients
-from scipy.signal import butter, filtfilt
 b, a = butter(order, normal_cutoff, btype='low', analog=False)
-
 filtered_acceleration = filtfilt(b,a,acceleration)
 
-
-plt.plot(acceleration)
-plt.plot(filtered_acceleration)
-
-
-
-# after thresholding, find the peak acceleration within the 100 ms window
+# find the peak acceleration within a window
 peak_acc_idx = []
 window = 0.15   # 150 ms
-for i in acceleration_thresholded:
+for i in velocity_thresholded:
     this_window = np.where((times[i]-window/2 < times) & (times < times[i]+window/2))[0]
     peak_acc_idx.append(np.argmax(acceleration[this_window])+this_window[0])
-peak_acc_idx = np.unique(peak_acc_idx)   # remain only unique values
+peak_acc_idx = np.unique(peak_acc_idx)      # reserve only unique values
 
 # refine the peak acceleration 
 for i in peak_acc_idx:
     this_window = np.where((times[i]-window/2 < times) & (times < times[i]+window/2))[0]
     acc = acceleration[this_window]
-    if np.argmax(acc)!=(i-this_window[0]):
+
+    # if the time of detected max value of this saccade does not match to the index, throw out the index
+    if np.argmax(acc)!=(i-this_window[0]):      
         peak_acc_idx = peak_acc_idx[peak_acc_idx != i]
 
-# find saccade durations based on the peak acceleration index
+# find saccade durations based on the filtered_acceelration
+window = 0.2       # 200ms 
+saccade_start = []
+saccade_end = []
+for peak_id, t_id in enumerate(peak_acc_idx):
+    # find the start of a saccade 
+    this_window = np.where((times >= times[t_id]-window/2)& (times <= times[t_id]+window/2))[0]
+    this_saccade = filtered_acceleration[this_window]
+
+    # find saccade start: right before the dip at the start of saccade  
+    predip_time = 
+    saccade_start.append(np.argmin(filtered_acceleration[this_window[0]:t_id])-3)
+    
+# TODO: need to compute amplitude of the saccades 
+
+
+fig, (ax1,ax2) = plt.subplots(2,1,sharex=True)
+ax1.plot(acceleration)
+ax1.plot(filtered_acceleration)
+ax1.scatter(peak_acc_idx, acceleration[peak_acc_idx], color='red')
+ax2.plot(velocity_magnitude)
+
+
+
 saccade_start = []
 saccade_end = []
 neg_peak_acc_idx = []
@@ -99,12 +113,12 @@ for peak_id, i in enumerate(peak_acc_idx):
     saccade_start.append(np.argmin(np.abs(acc_diff))+this_window[0]+1)   # find the derivative closest to 0 
 
     # find the end of saccade duration
-    # first find the deep that happens until the next peak
+    # first find the dip that happens until the next peak
     if i < peak_acc_idx[-1]:
         this_window = np.arange(i, peak_acc_idx[peak_id+1])
     else:
         this_window = np.arange(i,len(times))
-    deep = np.argmin(acceleration[this_window])+this_window[0]
+    dip = np.argmin(acceleration[this_window])+this_window[0]
     neg_peak_acc_idx.append(deep)
     
     # find the first most flat point after 100ms of the deep
@@ -112,20 +126,7 @@ for peak_id, i in enumerate(peak_acc_idx):
     acc_diff = np.diff(acceleration[deep:this_window[-1]])
     saccade_end.append(np.argmin(np.abs(acc_diff))+deep+1)
 
-# find velocity peaks, around the acceleration peak
-peak_velocity_idx = []
-window = 0.15   # 150 ms
-for i in peak_acc_idx:
-    this_window = np.where((times[i]-window/2 < times) & (times < times[i]+window/2))[0]
-    peak_velocity_idx.append(np.argmax(velocity_magnitude[this_window])+this_window[0])
-peak_velocity_idx = np.unique(peak_velocity_idx)   # remain only unique values
 
-# refine the velocity_peak
-for i in peak_velocity_idx:
-    this_window = np.where((times[i]-window/2 < times) & (times < times[i]+window/2))[0]
-    v = velocity_magnitude[this_window]
-    if np.argmax(v)!=(i-this_window[0]):
-        peak_velocity_idx = peak_velocity_idx[peak_velocity_idx != i]
 
 # create figure for plotting the acceleration, velocity, and the raw data
 fig, ax = plt.subplots(figsize=(10,10), nrows=4, ncols=1)
