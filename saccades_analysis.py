@@ -80,73 +80,75 @@ for i in peak_acc_idx:
         peak_acc_idx = peak_acc_idx[peak_acc_idx != i]
 
 # find saccade durations based on the filtered_acceelration
-window = 0.2       # 200ms 
-buffer = 0.01     # 25ms, buffer for the start and end of the saccade 
+buffer = 0.02     # buffer for the start and end of the saccade 
 saccade_start = []
 saccade_end = []
-for peak_id, t_id in enumerate(peak_acc_idx):
-    # find the start of a saccade 
-    this_window = np.where((times >= times[t_id]-window/2)& (times <= times[t_id]+window/2))[0]
-    this_saccade = filtered_acceleration[this_window]
+for peak_id, peak_time in enumerate(peak_acc_idx):
+    if peak_id != len(peak_acc_idx)-1:
+        next_peak_time = peak_acc_idx[peak_id+1]
+    else:
+        next_peak_time = len(times)-1
 
-    # find saccade start: start of the dip before the peak of the saccade  
-    pre_saccade_dip = np.argmin(filtered_acceleration[this_window[0]:t_id])+this_window[0]
+    # find pre_saccade_dip
+    window_start = np.argmin(np.abs(times - (times[peak_time]-0.1)))
+    pre_saccade_dip = np.argmin(filtered_acceleration[window_start:peak_time])+window_start
+
+    # set saccade start time
     saccade_start_idx = np.argmin(np.abs(times - (times[pre_saccade_dip]-buffer)))
+    
+    # make sure not to overlap with the previous saccade
+    if (len(saccade_end) != 0):
+        if (saccade_start_idx < saccade_end[-1]):
+            saccade_start_idx = saccade_end[-1]+1
     saccade_start.append(saccade_start_idx)
 
-    # find saccade end: endn of the bump after the dip of the saccade
-    saccade_dip = np.argmin(filtered_acceleration[t_id:this_window[-1]])+t_id
-    post_saccade_bump = np.argmax(filtered_acceleration[saccade_dip:this_window[-1]])+saccade_dip
-    saccade_end_idx = np.argmin(np.abs(times - (times[post_saccade_bump]+buffer)))
-    saccade_end.append(saccade_end_idx)
-    
-# TODO: need to compute amplitude of the saccades 
-# TODO: What is the unit of deg/fsp and deg/fsp^2 and how do I convert it to deg/s?
+    # find the dip in the saccade
+    post_saccade_dip = np.argmin(filtered_acceleration[peak_time:next_peak_time])+peak_time
 
-# Figure 1. acceleration
-fig, (ax1,ax2) = plt.subplots(2,1,sharex=True)
-ax1.plot(times, acceleration, label = 'Acceleration')
-ax1.plot(times, filtered_acceleration, label = 'Fitlered acceleration')
+    # if the current and the next peak are not too close, find bump after a saccade
+    if (np.abs(times[peak_time]-times[next_peak_time]) > 0.2):
+        if times[post_saccade_dip]+0.1 < times.iloc[-1]:
+            window_end = np.argmin(np.abs(times - (times[post_saccade_dip]+0.1)))
+        else:
+            window_end = len(times)-1
+        bump = np.argmax(filtered_acceleration[post_saccade_dip:window_end])+post_saccade_dip
+        saccade_end_idx = np.argmin(np.abs(times - (times[bump]+buffer)))
+    else:   # if the current and the next peak are too close, find a middle ground
+        middle_point = int(np.average([post_saccade_dip, next_peak_time]))
+        saccade_end_idx = np.argmin(np.abs(filtered_acceleration[post_saccade_dip:middle_point]))+post_saccade_dip
+    saccade_end.append(saccade_end_idx)
+
+    
+# compute the amplitude of saccade 
+
+    
+
+# Figure 1. raw data
+fig, (ax1,ax2,ax3) = plt.subplots(3,1,sharex=True)
+ax1.plot(times, acceleration, label = 'acceleration')
+ax1.plot(times, filtered_acceleration, label = 'filtered_acceleration')
 ax1.scatter(times[peak_acc_idx], acceleration[peak_acc_idx], color='red', label='Peak')
 for start, end in zip(times[saccade_start], times[saccade_end]):
     ax1.axvspan(start, end, color='gray', alpha=.2)
 ax1.set_ylabel(r'Acceleration[deg/sec$^{-2}$]')
 ax1.legend()
 
-# Figure 2. Velocity
+# ax2. velocity magnitude
 ax2.plot(times, velocity_magnitude, label = 'magnitude')
+for start, end in zip(times[saccade_start], times[saccade_end]):
+    ax2.axvspan(start, end, color='gray', alpha=.2)
+ax2.set_ylabel(r'Velocity[deg/sec]')
+ax2.legend()
 
+# ax3. velocity for azimuth and elevation
+ax3.plot(times, velocity_x, label = 'azimuth')
+ax3.plot(times, velocity_y, label = 'elevation')
+for start, end in zip(times[saccade_start], times[saccade_end]):
+    ax3.axvspan(start, end, color='gray', alpha=.2)
+ax3.set_ylabel(r'Velocity[deg/sec]')
+ax3.legend()
+ax3.set_xlabel('Time [sec]')
 
-# # create figure for plotting the acceleration, velocity, and the raw data
-# fig, ax = plt.subplots(figsize=(10,10), nrows=4, ncols=1)
-
-# ax[0].plot(times, acceleration, alpha=0.5, label='acceleration')
-# ax[0].scatter(times[peak_acc_idx], acceleration[peak_acc_idx], 
-#             color='red', label='peak acceleration')
-# for start, end in zip(times[saccade_start], times[saccade_end]):
-#     ax[0].axvspan(start, end, color='gray', alpha=.2)
-# ax[0].set_ylabel
-# ax[0].legend()
-
-# ax[1].plot(times, velocity_x, alpha=0.5, label='azimuth')
-# ax[1].plot(times, velocity_y, alpha=0.5, label='elevation')
-# ax[1].plot(times, velocity_magnitude, alpha=0.8, label='magnitude')
-# ax[1].scatter(times[peak_velocity_idx], velocity_magnitude[peak_velocity_idx], color='red', label='peak velocity')
-# for start, end in zip(times[saccade_start], times[saccade_end]):
-#     ax[1].axvspan(start, end, color='gray', alpha=.2)
-# ax[1].set_ylabel('Velocity [deg/s]')
-# ax[1].legend(loc='lower right')
-
-# ax[2].plot(times, gaze['azimuth [deg]'])
-# for start, end in zip(times[saccade_start], times[saccade_end]):
-#     ax[2].axvspan(start, end, color='gray', alpha=.2)
-# ax[2].set_ylabel('Azimuth [deg]')
-
-# ax[3].plot(times, gaze['elevation [deg]'])
-# for start, end in zip(times[saccade_start], times[saccade_end]):
-#     ax[3].axvspan(start, end, color='gray', alpha=.2)
-# ax[3].set_xlabel('Time [sec]')
-# ax[3].set_ylabel('Elevation [deg]')
 
 # #%% compare saccade duration with amplitude and maximum acceleration
 # saccade_duration = times[saccade_end].to_numpy()-times[saccade_start].to_numpy()
