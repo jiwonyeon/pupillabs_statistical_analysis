@@ -6,6 +6,7 @@ import os, glob
 import subprocess, pickle
 from scipy.signal import find_peaks
 from scipy.signal import butter, filtfilt
+from scipy.optimize import curve_fit
 
 #%% set directories
 dataPath = os.path.abspath(glob.glob('./data/2023*')[0])
@@ -23,7 +24,7 @@ pupil_data = pickle.load(open(os.path.join(dataPath, 'eyedata.pkl'), 'rb'))
 
 #%% detect saccades and generate figures
 # select the data to plot
-chopping = np.arange(0,3501)
+chopping = np.arange(0,50000)
 times = (pupil_data['gaze']['timestamp [ns]'] - pupil_data['gaze']['timestamp [ns]'][0]) / 1e9
 times = times[chopping]
 times.name = 'time [sec]'
@@ -88,9 +89,14 @@ for peak_id, peak_time in enumerate(peak_acc_idx):
         next_peak_time = peak_acc_idx[peak_id+1]
     else:
         next_peak_time = len(times)-1
-
-    # find pre_saccade_dip
     window_start = np.argmin(np.abs(times - (times[peak_time]-0.1)))
+
+    # if is a noisy peak-time, adjust it
+    while filtered_acceleration[peak_time] < np.max(filtered_acceleration[window_start:peak_time]):
+        peak_time = np.argmax(filtered_acceleration[window_start:peak_time])+window_start
+        window_start = np.argmin(np.abs(times - (times[peak_time]-0.1)))
+
+    # find the dip in the saccade
     pre_saccade_dip = np.argmin(filtered_acceleration[window_start:peak_time])+window_start
 
     # set saccade start time
@@ -105,25 +111,70 @@ for peak_id, peak_time in enumerate(peak_acc_idx):
     # find the dip in the saccade
     post_saccade_dip = np.argmin(filtered_acceleration[peak_time:next_peak_time])+peak_time
 
+
+
+
+
+
+    
+
     # if the current and the next peak are not too close, find bump after a saccade
     if (np.abs(times[peak_time]-times[next_peak_time]) > 0.2):
-        if times[post_saccade_dip]+0.1 < times.iloc[-1]:
-            window_end = np.argmin(np.abs(times - (times[post_saccade_dip]+0.1)))
+        if peak_id != len(peak_acc_idx)-1:    
+            window_end = np.argmin(np.abs(times - (times[next_peak_time]-0.05)))
         else:
-            window_end = len(times)-1
+            window_end = len(times)-1       # case where it's the last 
+
+        # find where the oscillation gets converged
+        test = []
+        for i, idx in enumerate(np.arange(post_saccade_dip, window_end)):
+            test.append(max(filtered_acceleration[idx:idx+20])-min(filtered_acceleration[idx:idx+20]))
+            
+        # apply butterworth filter
+        cutoff = 10     # cutoff frequency
+        order = 2   # filter order
+        nyq = 0.5*(1/fsp)  # Nyquist frequency, frequency in Hz
+        normal_cutoff = cutoff/nyq
+
+        # filter coefficients
+        b, a = butter(order, normal_cutoff, btype='low', analog=False)
+        test2 = filtfilt(b,a,filtered_acceleration)
+
+        test3 = []
+        for i in np.arange(saccade_start[3], saccade_end[3]):
+            std = np.std(filtered_acceleration[i:i+20])
+            test3.append(std)
+
         bump = np.argmax(filtered_acceleration[post_saccade_dip:window_end])+post_saccade_dip
         saccade_end_idx = np.argmin(np.abs(times - (times[bump]+buffer)))
+
     else:   # if the current and the next peak are too close, find a middle ground
         middle_point = int(np.average([post_saccade_dip, next_peak_time]))
-        saccade_end_idx = np.argmin(np.abs(filtered_acceleration[post_saccade_dip:middle_point]))+post_saccade_dip
+        if post_saccade_dip < middle_point:
+            saccade_end_idx = np.argmin(np.abs(filtered_acceleration[post_saccade_dip:middle_point]))+post_saccade_dip
+        else:
+            saccade_end_idx = post_saccade_dip
+
     saccade_end.append(saccade_end_idx)
 
-    
-# compute the amplitude of saccade 
 
-    
+   
+# compute duration, amplitude, and peak velocity of saccade
+combined_amplitude = np.sqrt(gaze['azimuth [deg]']**2 + gaze['elevation [deg]']**2)
+peak_velocity = []
+amplitude = []
+for start, end in zip(saccade_start, saccade_end):
+    # compute amplitude of saccade
+    amplitude.append(np.max(combined_amplitude[start:end])-np.min(combined_amplitude[start:end]))
 
-# Figure 1. raw data
+    # compute peak velocity 
+    peak_velocity.append(np.max(velocity_magnitude[start:end]))    
+amplitude = np.array(amplitude)
+peak_velocity = np.array(peak_velocity)
+saccade_duration = times[saccade_end].to_numpy()-times[saccade_start].to_numpy()
+
+
+#%% Figure 1. plot raw data
 fig, (ax1,ax2,ax3) = plt.subplots(3,1,sharex=True)
 ax1.plot(times, acceleration, label = 'acceleration')
 ax1.plot(times, filtered_acceleration, label = 'filtered_acceleration')
@@ -149,20 +200,19 @@ ax3.set_ylabel(r'Velocity[deg/sec]')
 ax3.legend()
 ax3.set_xlabel('Time [sec]')
 
+#%% Figure 2. plot saccade amplitude and velocity against duration
+sort_order = np.argsort(saccade_duration)
+fig2, (ax1,ax2) = plt.subplots(2,1)
+ax1.scatter(saccade_duration[sort_order], amplitude[sort_order])
+ax1.set_ylabel('Amplitude [deg]')
+ax1.set_xticklabels([])
 
-# #%% compare saccade duration with amplitude and maximum acceleration
-# saccade_duration = times[saccade_end].to_numpy()-times[saccade_start].to_numpy()
-# saccade_max_acceleration = acceleration[peak_acc_idx]
-# saccade_amplitude = acceleration[peak_acc_idx]-acceleration[neg_peak_acc_idx]
+ax2.scatter(saccade_duration[sort_order], peak_velocity[sort_order])
+ax2.set_ylabel('Peak Velocity [deg/sec]')
+ax2.set_xlabel('Time [sec]')
 
-# order = np.argsort(saccade_duration)
-# fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(10,5))
-# n = 0
-# ax[n].plot(saccade_duration[order], saccade_amplitude, '-o')
-# ax[n].set_xlabel('Saccade duration [sec]')
-# ax[n].set_ylabel('Saccade amplitude')
 
-# n += 1
-# ax[n].plot(saccade_duration[order], saccade_max_acceleration[order], '-o')
-# ax[n].set_xlabel('Saccade duration [sec]')
-# ax[n].set_ylabel(r'Max acceleration [deg/sec$^{-2}$]')
+
+plt.figure()
+alpha = np.linspace(0.1, 1.0, len(thiswindow))
+plt.scatter(gaze['azimuth [deg]'].loc[thiswindow], gaze['elevation [deg]'].loc[thiswindow], color='blue', alpha=alpha)
