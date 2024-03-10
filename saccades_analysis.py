@@ -24,7 +24,7 @@ pupil_data = pickle.load(open(os.path.join(dataPath, 'eyedata.pkl'), 'rb'))
 
 #%% detect saccades and generate figures
 # select the data to plot
-chopping = np.arange(0,50000)
+chopping = np.arange(0,len(pupil_data['gaze']))
 times = (pupil_data['gaze']['timestamp [ns]'] - pupil_data['gaze']['timestamp [ns]'][0]) / 1e9
 times = times[chopping]
 times.name = 'time [sec]'
@@ -50,7 +50,7 @@ velocity_magnitude = np.sqrt(velocity_x**2+velocity_y**2)
 acceleration = np.gradient(velocity_magnitude, fsp)
 
 # threshold the velocity_magnitude
-threshold = 150      # threshold for velocity_magnitude
+threshold = 200      # threshold for velocity_magnitude
 velocity_thresholded = np.where(velocity_magnitude>=threshold)[0]
 
 # apply butterworth filter
@@ -84,18 +84,26 @@ for i in peak_acc_idx:
 buffer = 0.02     # buffer for the start and end of the saccade 
 saccade_start = []
 saccade_end = []
+
+# apply butterworth filter to filtered_acceleration to smooth the signal
+cutoff = 10     # cutoff frequency
+order = 2   # filter order
+nyq = 0.5*(1/fsp)  # Nyquist frequency, frequency in Hz
+normal_cutoff = cutoff/nyq
+b, a = butter(order, normal_cutoff, btype='low', analog=False)
+saccade_tail = filtfilt(b,a,acceleration)
+
 for peak_id, peak_time in enumerate(peak_acc_idx):
     if peak_id != len(peak_acc_idx)-1:
         next_peak_time = peak_acc_idx[peak_id+1]
     else:
         next_peak_time = len(times)-1
+
     window_start = np.argmin(np.abs(times - (times[peak_time]-0.1)))
-
-    # if is a noisy peak-time, adjust it
-    while filtered_acceleration[peak_time] < np.max(filtered_acceleration[window_start:peak_time]):
-        peak_time = np.argmax(filtered_acceleration[window_start:peak_time])+window_start
-        window_start = np.argmin(np.abs(times - (times[peak_time]-0.1)))
-
+    if peak_id != 0:
+        if window_start < saccade_end[-1]:
+            window_start = saccade_end[-1]
+    
     # find the dip in the saccade
     pre_saccade_dip = np.argmin(filtered_acceleration[window_start:peak_time])+window_start
 
@@ -108,57 +116,28 @@ for peak_id, peak_time in enumerate(peak_acc_idx):
             saccade_start_idx = saccade_end[-1]+1
     saccade_start.append(saccade_start_idx)
 
+    # set a rough end point for the saccade 
+    window_end = int(np.average([peak_time, next_peak_time]))
+    if peak_id == len(peak_acc_idx)-1:
+        window_end = len(times)-1
+
     # find the dip in the saccade
-    post_saccade_dip = np.argmin(filtered_acceleration[peak_time:next_peak_time])+peak_time
+    post_saccade_dip = np.argmin(filtered_acceleration[peak_time:window_end])+peak_time
 
-
-
-
-
-
+    # find the first point where the smoothed acceleration converges
+    saccade_tail_threshold = 200
+    sup_threshold = np.where(np.abs(saccade_tail[post_saccade_dip:window_end])<saccade_tail_threshold)[0]
+    while len(sup_threshold) == 0:
+        saccade_tail_threshold += 100
+        sup_threshold = np.where(np.abs(saccade_tail[post_saccade_dip:window_end])<saccade_tail_threshold)[0]
+    saccade_tail_start = sup_threshold[0] + post_saccade_dip
     
+    # add a buffer to the end of the saccade
+    saccade_end_idx = np.argmin(np.abs(times - (times[saccade_tail_start]+buffer)))
 
-    # if the current and the next peak are not too close, find bump after a saccade
-    if (np.abs(times[peak_time]-times[next_peak_time]) > 0.2):
-        if peak_id != len(peak_acc_idx)-1:    
-            window_end = np.argmin(np.abs(times - (times[next_peak_time]-0.05)))
-        else:
-            window_end = len(times)-1       # case where it's the last 
-
-        # find where the oscillation gets converged
-        test = []
-        for i, idx in enumerate(np.arange(post_saccade_dip, window_end)):
-            test.append(max(filtered_acceleration[idx:idx+20])-min(filtered_acceleration[idx:idx+20]))
-            
-        # apply butterworth filter
-        cutoff = 10     # cutoff frequency
-        order = 2   # filter order
-        nyq = 0.5*(1/fsp)  # Nyquist frequency, frequency in Hz
-        normal_cutoff = cutoff/nyq
-
-        # filter coefficients
-        b, a = butter(order, normal_cutoff, btype='low', analog=False)
-        test2 = filtfilt(b,a,filtered_acceleration)
-
-        test3 = []
-        for i in np.arange(saccade_start[3], saccade_end[3]):
-            std = np.std(filtered_acceleration[i:i+20])
-            test3.append(std)
-
-        bump = np.argmax(filtered_acceleration[post_saccade_dip:window_end])+post_saccade_dip
-        saccade_end_idx = np.argmin(np.abs(times - (times[bump]+buffer)))
-
-    else:   # if the current and the next peak are too close, find a middle ground
-        middle_point = int(np.average([post_saccade_dip, next_peak_time]))
-        if post_saccade_dip < middle_point:
-            saccade_end_idx = np.argmin(np.abs(filtered_acceleration[post_saccade_dip:middle_point]))+post_saccade_dip
-        else:
-            saccade_end_idx = post_saccade_dip
-
+    # add the saccade start and end to the list
     saccade_end.append(saccade_end_idx)
-
-
-   
+  
 # compute duration, amplitude, and peak velocity of saccade
 combined_amplitude = np.sqrt(gaze['azimuth [deg]']**2 + gaze['elevation [deg]']**2)
 peak_velocity = []
@@ -172,7 +151,6 @@ for start, end in zip(saccade_start, saccade_end):
 amplitude = np.array(amplitude)
 peak_velocity = np.array(peak_velocity)
 saccade_duration = times[saccade_end].to_numpy()-times[saccade_start].to_numpy()
-
 
 #%% Figure 1. plot raw data
 fig, (ax1,ax2,ax3) = plt.subplots(3,1,sharex=True)
@@ -189,14 +167,14 @@ ax2.plot(times, velocity_magnitude, label = 'magnitude')
 for start, end in zip(times[saccade_start], times[saccade_end]):
     ax2.axvspan(start, end, color='gray', alpha=.2)
 ax2.set_ylabel(r'Velocity[deg/sec]')
-ax2.legend()
 
-# ax3. velocity for azimuth and elevation
-ax3.plot(times, velocity_x, label = 'azimuth')
-ax3.plot(times, velocity_y, label = 'elevation')
+# ax3. azimuth and elevation
+ax3.plot(times, gaze['azimuth [deg]'], label = 'azimuth')
+ax3.plot(times, gaze['elevation [deg]'], label = 'elevation')
+ax3.plot(times, combined_amplitude, label = 'combined')
 for start, end in zip(times[saccade_start], times[saccade_end]):
     ax3.axvspan(start, end, color='gray', alpha=.2)
-ax3.set_ylabel(r'Velocity[deg/sec]')
+ax3.set_ylabel(r'amplitude[deg]')
 ax3.legend()
 ax3.set_xlabel('Time [sec]')
 
@@ -209,10 +187,6 @@ ax1.set_xticklabels([])
 
 ax2.scatter(saccade_duration[sort_order], peak_velocity[sort_order])
 ax2.set_ylabel('Peak Velocity [deg/sec]')
-ax2.set_xlabel('Time [sec]')
+ax2.set_xlabel('Saccade Duration [sec]')
 
 
-
-plt.figure()
-alpha = np.linspace(0.1, 1.0, len(thiswindow))
-plt.scatter(gaze['azimuth [deg]'].loc[thiswindow], gaze['elevation [deg]'].loc[thiswindow], color='blue', alpha=alpha)
