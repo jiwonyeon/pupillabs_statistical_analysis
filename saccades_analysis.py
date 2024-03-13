@@ -9,7 +9,8 @@ from scipy.signal import butter, filtfilt
 from scipy.optimize import curve_fit
 
 #%% set directories
-dataPath = os.path.abspath(glob.glob('./data/2023*')[0])
+# dataPath = os.path.abspath(glob.glob('./data/2023*')[1])
+dataPath = os.path.abspath('./data/2023-10-17_14-10-50-482637ef')
 figPath= './figure'
 
 # if the pkl file does not exist, generate the pkl file first
@@ -21,10 +22,9 @@ if not os.path.exists(os.path.join(dataPath, 'eyedata.pkl')):
 # load pupil_data
 pupil_data = pickle.load(open(os.path.join(dataPath, 'eyedata.pkl'), 'rb'))
 
-
 #%% detect saccades and generate figures
 # select the data to plot
-chopping = np.arange(0,len(pupil_data['gaze']))
+chopping = np.arange(0,30000)
 times = (pupil_data['gaze']['timestamp [ns]'] - pupil_data['gaze']['timestamp [ns]'][0]) / 1e9
 times = times[chopping]
 times.name = 'time [sec]'
@@ -40,11 +40,38 @@ for id in gaze['fixation id'].dropna().unique():
 
 # compute velocity of x and y direction
 fsp = round(np.average(np.diff(times)),3)
-velocity_x = np.gradient(gaze['azimuth [deg]'], fsp) 
-velocity_y = np.gradient(gaze['elevation [deg]'], fsp)
+time_diff = np.append(np.diff(times), np.diff(times)[-1])
+
+azimuth = gaze['azimuth [deg]']
+elevation = gaze['elevation [deg]']
+amplitude = np.sqrt(azimuth**2 + elevation**2)
+velocity = np.gradient(amplitude, fsp)
+# velocity_2 = np.gradient(amplitude, time_diff)
+
+plt.figure()
+plt.plot(times[:5000], azimuth[:5000], label='azimuth')
+plt.plot(times[:5000], elevation[:5000], label='elevation')
+plt.plot(times[:5000], amplitude[:5000], label='amplitude')
+plt.title('Pupil - Lego / ms')
+plt.legend(loc='lower right')
+plt.xlabel('Time [sec]')
+plt.ylabel('Angle [deg]')
+
+plt.figure()
+plt.plot(time_diff[:1000])
+plt.title('Pupil Labs')
+plt.xlabel('Data point')
+plt.ylabel('Time interval between the two data points [sec]')
+
+plt.figure()
+plt.plot(times[:5000], velocity[:5000], label='velocity')
+plt.title('Pupil - Lego / ms')
+plt.xlabel('Time [sec]')
+plt.ylabel('Velocity [deg/sec]')
+
 
 # compute velocity considering both directions
-velocity_magnitude = np.sqrt(velocity_x**2+velocity_y**2)
+# velocity_magnitude = np.sqrt(velocity_x**2+velocity_y**2)
 
 # second derivative of the amplitude
 acceleration = np.gradient(velocity_magnitude, fsp)
@@ -164,6 +191,7 @@ ax1.legend()
 
 # ax2. velocity magnitude
 ax2.plot(times, velocity_magnitude, label = 'magnitude')
+ax2.scatter(times[peak_acc_idx], velocity_magnitude[peak_acc_idx], color='red', label='saccade peak')
 for start, end in zip(times[saccade_start], times[saccade_end]):
     ax2.axvspan(start, end, color='gray', alpha=.2)
 ax2.set_ylabel(r'Velocity[deg/sec]')
@@ -171,7 +199,7 @@ ax2.set_ylabel(r'Velocity[deg/sec]')
 # ax3. azimuth and elevation
 ax3.plot(times, gaze['azimuth [deg]'], label = 'azimuth')
 ax3.plot(times, gaze['elevation [deg]'], label = 'elevation')
-ax3.plot(times, combined_amplitude, label = 'combined')
+ax3.plot(times, combined_amplitude, linestyle='-', label = 'combined')
 for start, end in zip(times[saccade_start], times[saccade_end]):
     ax3.axvspan(start, end, color='gray', alpha=.2)
 ax3.set_ylabel(r'amplitude[deg]')
@@ -180,13 +208,20 @@ ax3.set_xlabel('Time [sec]')
 
 #%% Figure 2. plot saccade amplitude and velocity against duration
 sort_order = np.argsort(saccade_duration)
-fig2, (ax1,ax2) = plt.subplots(2,1)
+fig2, (ax1,ax2,ax3) = plt.subplots(3,1)
 ax1.scatter(saccade_duration[sort_order], amplitude[sort_order])
 ax1.set_ylabel('Amplitude [deg]')
-ax1.set_xticklabels([])
+ax1.set_xlabel('Saccade Duration [sec]')
+# ax1.set_xticklabels([])
 
 ax2.scatter(saccade_duration[sort_order], peak_velocity[sort_order])
 ax2.set_ylabel('Peak Velocity [deg/sec]')
 ax2.set_xlabel('Saccade Duration [sec]')
+
+sort_order = np.argsort(amplitude)
+ax3.scatter(amplitude[sort_order], peak_velocity[sort_order])
+ax3.set_ylabel('Peak Velocity [deg/sec]')
+ax3.set_xlabel('Amplitude [deg]')
+
 
 
