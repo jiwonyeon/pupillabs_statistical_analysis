@@ -5,6 +5,14 @@ import pickle
 from matplotlib import pyplot as plt
 from scipy.signal import savgol_filter
 
+""" This code was written to check the velocity of the eye data.
+    The code compared velocity between Pupil Labs' and Tobii's device. 
+    While Pupil Labs' data looked noisier, when applied some filtering (savgol_filter), 
+    the pupil labs' data looked also reasonable. 
+
+    Jiwon Yeon. 2024
+"""
+
 data_path = './data'
 folders = glob.glob(data_path + '/2023*')
 figure_path = './figure'
