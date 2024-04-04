@@ -5,76 +5,125 @@ import matplotlib.pyplot as plt
 import os, glob
 import subprocess, pickle
 from scipy.signal import find_peaks
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, filtfilt, savgol_filter
 from scipy.optimize import curve_fit
 
 #%% set directories
 # dataPath = os.path.abspath(glob.glob('./data/2023*')[1])
-dataPath = os.path.abspath('./data/2023-10-17_14-10-50-482637ef')
+dataPath = os.path.abspath('./data/2023-10-13_17-09-39-76f1e771')
 figPath= './figure'
 
-# if the pkl file does not exist, generate the pkl file first
-pupil_to_pkl = os.path.abspath('../pupillabs_util/pupil_to_pkl.py')
-command = ["python", pupil_to_pkl, dataPath]
-if not os.path.exists(os.path.join(dataPath, 'eyedata.pkl')):
-    subprocess.run(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+# # if the pkl file does not exist, generate the pkl file first
+# pupil_to_pkl = os.path.abspath('../pupillabs_util/pupil_to_pkl.py')
+# command = ["python", pupil_to_pkl, dataPath]
+# if not os.path.exists(os.path.join(dataPath, 'eyedata.pkl')):
+#     subprocess.run(command, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
-# load pupil_data
-pupil_data = pickle.load(open(os.path.join(dataPath, 'eyedata.pkl'), 'rb'))
+# # load pupil_data
+# pupil_data = pickle.load(open(os.path.join(dataPath, 'eyedata.pkl'), 'rb'))
 
-#%% detect saccades and generate figures
-# select the data to plot
-chopping = np.arange(0,30000)
-times = (pupil_data['gaze']['timestamp [ns]'] - pupil_data['gaze']['timestamp [ns]'][0]) / 1e9
-times = times[chopping]
-times.name = 'time [sec]'
+gaze = pd.read_csv(dataPath + '/gaze.csv')
+blinks = pd.read_csv(dataPath + '/blinks.csv')
+fixations = pd.read_csv(dataPath + '/fixations.csv')
+times = (gaze['timestamp [ns]'].values - gaze['timestamp [ns]'][0]) / 1e9   # in second
 
-# extract gazes and fixation start and end points
-gaze = pupil_data['gaze'].iloc[chopping]
-fixation_start = []
-fixation_end = []
-for id in gaze['fixation id'].dropna().unique():
-    fixation = gaze[gaze['fixation id']==id]
-    fixation_start.append(fixation.index[0])
-    fixation_end.append(fixation.index[-1])    
+# if it is not fixation and blinks, it is saccade
+gaze['saccade id'] = np.nan
+current_saccade_id = 0
+for i in range(len(gaze)):
+    # Check if the current row is a saccade
+    if pd.isna(gaze.loc[i, 'fixation id']) and pd.isna(gaze.loc[i, 'blink id']):
+        # If it's the first row or the previous row was not a saccade, increment the saccade id
+        if i == 0 or not (pd.isna(gaze.loc[i - 1, 'fixation id']) and pd.isna(gaze.loc[i - 1, 'blink id'])):
+            current_saccade_id = current_saccade_id + 1
+        
+        # Assign the current saccade id
+        gaze.loc[i, 'saccade id'] = current_saccade_id
 
 # compute velocity of x and y direction
 fsp = round(np.average(np.diff(times)),3)
-time_diff = np.append(np.diff(times), np.diff(times)[-1])
 
-azimuth = gaze['azimuth [deg]']
-elevation = gaze['elevation [deg]']
+# apply savgol filter to gaze positions
+window_length = 55 # Must be odd
+polynomial_order = 3
+azimuth = savgol_filter(gaze['azimuth [deg]'], window_length, polynomial_order)
+elevation = savgol_filter(gaze['elevation [deg]'], window_length, polynomial_order)
+amplitude = np.sqrt((azimuth**2)+(elevation**2))
+
+velocity = np.gradient(amplitude, fsp)
+acceleration = np.gradient(velocity, fsp)
+
+plot_time = np.arange(3500,7000)
+fig, (ax1,ax2) = plt.subplots(2,1,sharex=True)
+ax1.plot(plot_time, velocity[plot_time])
+ax11 = ax1.twinx()
+ax11.plot(plot_time,acceleration[plot_time], color='orange')
+
+ax2.plot(plot_time, azimuth[plot_time])
+ax2.plot(plot_time, elevation[plot_time])
+
+#%% plotting
+
+
+plt.figure()
+plt.plot(times[plot_time], azimuth[plot_time])
+plt.plot(times[plot_time], elevation[plot_time])
+
+# mark saccades based on pupil-labs classification
+for i in gaze.loc[plot_time]['saccade id'].dropna().unique():
+    min_time = gaze.loc[gaze['saccade id']==i]['timestamp [ns]'].idxmin()
+    max_time = gaze.loc[gaze['saccade id']==i]['timestamp [ns]'].idxmax()
+    plt.axvspan(xmin=times[min_time], xmax=times[max_time], color='gray', alpha=0.5)
+
+#%% detect saccades and generate figures
+
+
+
+# for azimuth (x) and elevation (y) gaze positions, apply savgol filter
 amplitude = np.sqrt(azimuth**2 + elevation**2)
 velocity = np.gradient(amplitude, fsp)
-# velocity_2 = np.gradient(amplitude, time_diff)
+velocity2 = np.sqrt(np.gradient(azimuth, fsp)**2 + np.gradient(elevation, fsp)**2)
 
-plt.figure()
-plt.plot(times[:5000], azimuth[:5000], label='azimuth')
-plt.plot(times[:5000], elevation[:5000], label='elevation')
-plt.plot(times[:5000], amplitude[:5000], label='amplitude')
-plt.title('Pupil - Lego / ms')
-plt.legend(loc='lower right')
-plt.xlabel('Time [sec]')
-plt.ylabel('Angle [deg]')
+acceleration = np.gradient(velocity2, fsp)
 
-plt.figure()
-plt.plot(time_diff[:1000])
-plt.title('Pupil Labs')
-plt.xlabel('Data point')
-plt.ylabel('Time interval between the two data points [sec]')
+# filter acceleration
+cutoff = 18     # cutoff frequency
+order = 2   # filter order 
+nyq = 0.5*(1/fsp)  # Nyquist frequency, frequency in Hz
+normal_cutoff = cutoff/nyq
 
-plt.figure()
-plt.plot(times[:5000], velocity[:5000], label='velocity')
-plt.title('Pupil - Lego / ms')
-plt.xlabel('Time [sec]')
-plt.ylabel('Velocity [deg/sec]')
+# filter coefficients
+b, a = butter(order, normal_cutoff, btype='low', analog=False)
+filtered_acceleration = filtfilt(b,a,acceleration)
+
+plot_time = np.arange(3500,8000)
+
+fig, (ax1,ax2,ax3) = plt.subplots(3,1,sharex=True)
+ax1.plot(times[plot_time],acceleration[plot_time])
+ax1.plot(times[plot_time],filtered_acceleration[plot_time])
+
+ax2.plot(times[plot_time],velocity2[plot_time])
+# ax2.plot(times[plot_time],filtered_velocity2[plot_time])
+ax3.plot(times[plot_time],azimuth[plot_time])
+ax3.plot(times[plot_time],elevation[plot_time])
+
+for i in range(len(fix_start)):
+    ax1.axvspan(times[fix_start[i]], times[fix_end[i]], color='gray', alpha=0.5)
+    ax2.axvspan(times[fix_start[i]], times[fix_end[i]], color='gray', alpha=0.5)
+    ax3.axvspan(times[fix_start[i]], times[fix_end[i]], color='gray', alpha=0.5)
 
 
-# compute velocity considering both directions
-# velocity_magnitude = np.sqrt(velocity_x**2+velocity_y**2)
+
+
+
 
 # second derivative of the amplitude
-acceleration = np.gradient(velocity_magnitude, fsp)
+acceleration = np.gradient(velocity, fsp)
+
+
+
+
+
 
 # threshold the velocity_magnitude
 threshold = 200      # threshold for velocity_magnitude
