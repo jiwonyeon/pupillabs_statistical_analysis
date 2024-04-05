@@ -1,0 +1,11 @@
+prefix=/Users/jyeon/Documents/GitHub/pupillabs_statistical_analysis/.conda
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+toolexeclibdir=${libdir}
+includedir=/Users/jyeon/Documents/GitHub/pupillabs_statistical_analysis/.conda/include
+
+Name: libffi
+Description: Library supporting Foreign Function Interfaces
+Version: 3.4.4
+Libs: -L${toolexeclibdir} -lffi
+Cflags: -I${includedir}
